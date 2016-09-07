@@ -26,9 +26,7 @@ import alfio.manager.FileUploadManager;
 import alfio.manager.TicketReservationManager;
 import alfio.manager.support.PartialTicketPDFGenerator;
 import alfio.manager.user.UserManager;
-import alfio.model.Event;
-import alfio.model.Ticket;
-import alfio.model.TicketReservation;
+import alfio.model.*;
 import alfio.model.modification.*;
 import alfio.model.modification.support.LocationDescriptor;
 import alfio.model.plugin.PluginConfigOption;
@@ -149,7 +147,7 @@ public class DataMigratorIntegrationTest {
         Event event = eventUsername.getKey();
 
         try {
-	        eventRepository.updatePrices(1000, "CHF", 40, false, BigDecimal.ONE, "STRIPE", event.getId());
+	        eventRepository.updatePrices("CHF", 40, false, BigDecimal.ONE, "STRIPE", event.getId(), PriceContainer.VatStatus.NOT_INCLUDED, 1000);
 	
 	        dataMigrator.migrateEventsToCurrentVersion();
 	        EventMigration eventMigration = eventMigrationRepository.loadEventMigration(event.getId());
@@ -179,7 +177,7 @@ public class DataMigratorIntegrationTest {
 
         try {
 	        eventMigrationRepository.insertMigrationData(event.getId(), "1.4", ZonedDateTime.now(ZoneId.of("UTC")).minusDays(1), EventMigration.Status.COMPLETE.toString());
-	        eventRepository.updatePrices(1000, "CHF", 40, false, BigDecimal.ONE, "STRIPE", event.getId());
+	        eventRepository.updatePrices("CHF", 40, false, BigDecimal.ONE, "STRIPE", event.getId(), PriceContainer.VatStatus.NOT_INCLUDED, 1000);
 	        dataMigrator.migrateEventsToCurrentVersion();
 	        EventMigration eventMigration = eventMigrationRepository.loadEventMigration(event.getId());
 	        assertNotNull(eventMigration);
@@ -209,7 +207,7 @@ public class DataMigratorIntegrationTest {
         try {
 	        ZonedDateTime migrationTs = ZonedDateTime.now(ZoneId.of("UTC"));
 	        eventMigrationRepository.insertMigrationData(event.getId(), currentVersion, migrationTs, EventMigration.Status.COMPLETE.toString());
-	        eventRepository.updatePrices(1000, "CHF", 40, false, BigDecimal.ONE, "STRIPE", event.getId());
+	        eventRepository.updatePrices("CHF", 40, false, BigDecimal.ONE, "STRIPE", event.getId(), PriceContainer.VatStatus.NOT_INCLUDED, 1000);
 	        dataMigrator.migrateEventsToCurrentVersion();
 	        EventMigration eventMigration = eventMigrationRepository.loadEventMigration(event.getId());
 	        assertNotNull(eventMigration);
@@ -267,7 +265,7 @@ public class DataMigratorIntegrationTest {
 	        trm.setTicketCategoryId(eventManager.loadTicketCategories(event).get(0).getId());
 	        TicketReservationWithOptionalCodeModification r = new TicketReservationWithOptionalCodeModification(trm, Optional.empty());
 	        Date expiration = DateUtils.addDays(new Date(), 1);
-	        String reservationId = ticketReservationManager.createTicketReservation(event.getId(), Collections.singletonList(r), Collections.emptyList(), expiration, Optional.empty(), Optional.empty(), Locale.ENGLISH, false);
+	        String reservationId = ticketReservationManager.createTicketReservation(event, Collections.singletonList(r), Collections.emptyList(), expiration, Optional.empty(), Optional.empty(), Locale.ENGLISH, false);
 	        dataMigrator.fillReservationsLanguage();
 	        TicketReservation ticketReservation = ticketReservationManager.findById(reservationId).get();
 	        assertEquals("en", ticketReservation.getUserLanguage());
@@ -291,18 +289,20 @@ public class DataMigratorIntegrationTest {
 	        trm.setTicketCategoryId(eventManager.loadTicketCategories(event).get(0).getId());
 	        TicketReservationWithOptionalCodeModification r = new TicketReservationWithOptionalCodeModification(trm, Optional.empty());
 	        Date expiration = DateUtils.addDays(new Date(), 1);
-	        String reservationId = ticketReservationManager.createTicketReservation(event.getId(), Collections.singletonList(r), Collections.emptyList(), expiration, Optional.empty(), Optional.empty(), Locale.ENGLISH, false);
-	        ticketReservationManager.confirm("TOKEN", event, reservationId, "email@email.ch", "full name", Locale.ENGLISH, null, new TicketReservationManager.TotalPrice(1000, 10, 0, 0), Optional.empty(), Optional.of(PaymentProxy.ON_SITE), false);
+	        String reservationId = ticketReservationManager.createTicketReservation(event, Collections.singletonList(r), Collections.emptyList(), expiration, Optional.empty(), Optional.empty(), Locale.ENGLISH, false);
+	        ticketReservationManager.confirm("TOKEN", null, event, reservationId, "email@email.ch", new CustomerName("Full Name", "Full", "Name", event), Locale.ENGLISH, null, new TicketReservationManager.TotalPrice(1000, 10, 0, 0), Optional.empty(), Optional.of(PaymentProxy.ON_SITE), false);
 	        List<Ticket> tickets = ticketRepository.findTicketsInReservation(reservationId);
 	        UpdateTicketOwnerForm first = new UpdateTicketOwnerForm();
 	        first.setEmail("email@email.ch");
 	        //first.setTShirtSize("SMALL");
 	        //first.setGender("F");
-	        first.setFullName("Full Name");
+	        first.setFirstName("Full");
+            first.setLastName("Name");
 	        UpdateTicketOwnerForm second = new UpdateTicketOwnerForm();
 	        //second.setTShirtSize("SMALL-F");
 	        second.setEmail("email@email.ch");
-	        second.setFullName("Full Name");
+	        second.setFirstName("Full");
+            second.setLastName("Name");
 	        PartialTicketPDFGenerator generator = TemplateProcessor.buildPartialPDFTicket(Locale.ITALIAN, event, ticketReservationManager.findById(reservationId).get(), ticketCategoryRepository.getById(tickets.get(0).getCategoryId(), event.getId()), organizationRepository.getById(event.getOrganizationId()), templateManager, fileUploadManager);
 	        ticketReservationManager.updateTicketOwner(tickets.get(0), Locale.ITALIAN, event, first, (t) -> "", (t) -> "", generator, Optional.empty());
 	        ticketReservationManager.updateTicketOwner(tickets.get(1), Locale.ITALIAN, event, second, (t) -> "", (t) -> "", generator, Optional.empty());

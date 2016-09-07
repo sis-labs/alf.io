@@ -21,19 +21,20 @@ import alfio.controller.api.support.EventListItem;
 import alfio.controller.api.support.TicketHelper;
 import alfio.manager.EventManager;
 import alfio.manager.EventStatisticsManager;
+import alfio.manager.PaymentManager;
 import alfio.manager.TicketReservationManager;
 import alfio.manager.i18n.I18nManager;
 import alfio.manager.support.OrderSummary;
 import alfio.manager.user.UserManager;
 import alfio.model.*;
 import alfio.model.modification.*;
-import alfio.model.transaction.PaymentProxy;
 import alfio.model.user.Organization;
 import alfio.model.user.Role;
 import alfio.repository.DynamicFieldTemplateRepository;
 import alfio.repository.SponsorScanRepository;
 import alfio.repository.TicketCategoryDescriptionRepository;
 import alfio.repository.TicketFieldRepository;
+import alfio.util.MonetaryUtil;
 import alfio.util.ValidationResult;
 import alfio.util.Validator;
 import com.opencsv.CSVReader;
@@ -86,6 +87,7 @@ public class EventApiController {
     private final DynamicFieldTemplateRepository dynamicFieldTemplateRepository;
     private final UserManager userManager;
     private final SponsorScanRepository sponsorScanRepository;
+    private final PaymentManager paymentManager;
 
     @Autowired
     public EventApiController(EventManager eventManager,
@@ -98,7 +100,8 @@ public class EventApiController {
                               TicketHelper ticketHelper,
                               DynamicFieldTemplateRepository dynamicFieldTemplateRepository,
                               UserManager userManager,
-                              SponsorScanRepository sponsorScanRepository) {
+                              SponsorScanRepository sponsorScanRepository,
+                              PaymentManager paymentManager) {
         this.eventManager = eventManager;
         this.eventStatisticsManager = eventStatisticsManager;
         this.i18nManager = i18nManager;
@@ -110,6 +113,7 @@ public class EventApiController {
         this.dynamicFieldTemplateRepository = dynamicFieldTemplateRepository;
         this.userManager = userManager;
         this.sponsorScanRepository = sponsorScanRepository;
+        this.paymentManager = paymentManager;
     }
 
     @ExceptionHandler(DataAccessException.class)
@@ -128,10 +132,15 @@ public class EventApiController {
     }
 
 
-    @RequestMapping(value = "/paymentProxies", method = GET)
+    @RequestMapping(value = "/paymentProxies/{organizationId}", method = GET)
     @ResponseStatus(HttpStatus.OK)
-    public List<PaymentProxy> getPaymentProxies() {
-        return PaymentProxy.availableProxies();
+    public List<PaymentManager.PaymentMethod> getPaymentProxies(@PathVariable("organizationId") int organizationId, Principal principal) {
+        return userManager.findUserOrganizations(principal.getName())
+            .stream()
+            .filter(o -> o.getId() == organizationId)
+            .findFirst()
+            .map(o -> paymentManager.getPaymentMethods(o.getId()))
+            .orElse(Collections.emptyList());
     }
 
     @RequestMapping(value = "/events", method = GET, headers = "Authorization")
@@ -237,7 +246,7 @@ public class EventApiController {
         return OK;
     }
 
-    private static final List<String> FIXED_FIELDS = Arrays.asList("ID", "creation", "category", "event", "status", "originalPrice", "paidPrice","reservationID", "Name", "E-Mail", "locked", "Language");
+    private static final List<String> FIXED_FIELDS = Arrays.asList("ID", "creation", "category", "event", "status", "originalPrice", "paidPrice", "discount", "vat", "reservationID", "Full Name", "First name", "Last name", "E-Mail", "locked", "Language");
     private static final int[] BOM_MARKERS = new int[] {0xEF, 0xBB, 0xBF};
 
     @RequestMapping("/events/{eventName}/export.csv")
@@ -267,10 +276,14 @@ public class EventApiController {
                 if(fields.contains("category")) {line.add(categoriesMap.get(t.getCategoryId()).getName());}
                 if(fields.contains("event")) {line.add(eventName);}
                 if(fields.contains("status")) {line.add(t.getStatus().toString());}
-                if(fields.contains("originalPrice")) {line.add(t.getOriginalPrice().toString());}
-                if(fields.contains("paidPrice")) {line.add(t.getPaidPrice().toString());}
+                if(fields.contains("originalPrice")) {line.add(MonetaryUtil.centsToUnit(t.getSrcPriceCts()).toString());}
+                if(fields.contains("paidPrice")) {line.add(MonetaryUtil.centsToUnit(t.getFinalPriceCts()).toString());}
+                if(fields.contains("discount")) {line.add(MonetaryUtil.centsToUnit(t.getDiscountCts()).toString());}
+                if(fields.contains("vat")) {line.add(MonetaryUtil.centsToUnit(t.getVatCts()).toString());}
                 if(fields.contains("reservationID")) {line.add(t.getTicketsReservationId());}
-                if(fields.contains("Name")) {line.add(t.getFullName());}
+                if(fields.contains("Full Name")) {line.add(t.getFullName());}
+                if(fields.contains("First Name")) {line.add(t.getFirstName());}
+                if(fields.contains("Last Name")) {line.add(t.getLastName());}
                 if(fields.contains("E-Mail")) {line.add(t.getEmail());}
                 if(fields.contains("locked")) {line.add(String.valueOf(t.getLockedAssignment()));}
                 if(fields.contains("Language")) {line.add(String.valueOf(t.getUserLanguage()));}
@@ -390,7 +403,7 @@ public class EventApiController {
         ticketReservationManager.confirmOfflinePayment(loadEvent(eventName, principal), reservationId);
         ticketReservationManager.findById(reservationId)
             .filter(TicketReservation::isDirectAssignmentRequested)
-            .ifPresent(reservation -> ticketHelper.directTicketAssignment(eventName, reservationId, reservation.getEmail(), reservation.getFullName(), reservation.getUserLanguage(), Optional.empty(), request, model));
+            .ifPresent(reservation -> ticketHelper.directTicketAssignment(eventName, reservationId, reservation.getEmail(), reservation.getFullName(), reservation.getFirstName(), reservation.getLastName(), reservation.getUserLanguage(), Optional.empty(), request, model));
         return OK;
     }
 

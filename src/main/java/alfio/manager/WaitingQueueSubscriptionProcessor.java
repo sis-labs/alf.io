@@ -31,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.Date;
 import java.time.ZonedDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static alfio.model.system.ConfigurationKeys.ENABLE_PRE_REGISTRATION;
 import static alfio.model.system.ConfigurationKeys.ENABLE_WAITING_QUEUE;
@@ -67,10 +68,11 @@ public class WaitingQueueSubscriptionProcessor {
         this.templateManager = templateManager;
     }
 
-    public void handleWaitingTickets() {
-        eventManager.getActiveEvents().stream()
-            .filter(this::isWaitingListFormEnabled)
-            .forEach(this::distributeAvailableSeats);
+    void handleWaitingTickets() {
+        Map<Boolean, List<Event>> activeEvents = eventManager.getActiveEvents().stream()
+            .collect(Collectors.partitioningBy(this::isWaitingListFormEnabled));
+        activeEvents.get(true).forEach(this::distributeAvailableSeats);
+        activeEvents.get(false).forEach(eventManager::resetReleasedTickets);
     }
 
     private boolean isWaitingListFormEnabled(Event event) {
@@ -83,7 +85,7 @@ public class WaitingQueueSubscriptionProcessor {
             WaitingQueueSubscription subscription = triple.getLeft();
             Locale locale = subscription.getLocale();
             ZonedDateTime expiration = triple.getRight();
-            String reservationId = createReservation(event.getId(), triple.getMiddle(), expiration, locale);
+            String reservationId = createReservation(event, triple.getMiddle(), expiration, locale);
             String subject = messageSource.getMessage("email-waiting-queue-acquired.subject", new Object[]{event.getDisplayName()}, locale);
             Map<String, Object> model = new HashMap<>();
             model.put("event", event);
@@ -99,8 +101,8 @@ public class WaitingQueueSubscriptionProcessor {
         });
     }
 
-    private String createReservation(int eventId, TicketReservationWithOptionalCodeModification reservation, ZonedDateTime expiration, Locale locale) {
-        return ticketReservationManager.createTicketReservation(eventId,
+    private String createReservation(Event event, TicketReservationWithOptionalCodeModification reservation, ZonedDateTime expiration, Locale locale) {
+        return ticketReservationManager.createTicketReservation(event,
                 Collections.singletonList(reservation), Collections.emptyList(), Date.from(expiration.toInstant()),
                 Optional.empty(),
                 Optional.empty(),

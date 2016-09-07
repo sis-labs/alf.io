@@ -16,19 +16,20 @@
  */
 package alfio.model;
 
-import biweekly.property.Organizer;
-import ch.digitalfondue.npjt.ConstructorAnnotationRowMapper.Column;
 import alfio.model.transaction.PaymentProxy;
 import alfio.util.MonetaryUtil;
 import biweekly.ICalVersion;
 import biweekly.ICalendar;
 import biweekly.component.VEvent;
 import biweekly.io.text.ICalWriter;
+import biweekly.property.Organizer;
+import ch.digitalfondue.npjt.ConstructorAnnotationRowMapper.Column;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.flywaydb.core.api.MigrationVersion;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
@@ -44,7 +45,7 @@ import java.util.stream.Collectors;
 
 @Getter
 @Log4j2
-public class Event {
+public class Event implements EventHiddenFieldContainer {
     public enum EventType {
         INTERNAL, EXTERNAL
     }
@@ -62,7 +63,6 @@ public class Event {
     private final String longitude;
     private final ZonedDateTime begin;
     private final ZonedDateTime end;
-    private final int regularPriceInCents;
     private final String currency;
     private final int availableSeats;
     private final boolean vatIncluded;
@@ -72,6 +72,12 @@ public class Event {
     private final int organizationId;
     private final ZoneId timeZone;
     private final int locales;
+
+    private final int srcPriceCts;
+    private final PriceContainer.VatStatus vatStatus;
+    private final String version;
+
+    private static final String VERSION_FOR_FIRST_AND_LAST_NAME = "15.1.8.8";
 
 
     public Event(@Column("id") int id,
@@ -89,15 +95,16 @@ public class Event {
                  @Column("file_blob_id") String fileBlobId,
                  @Column("website_t_c_url") String termsAndConditionsUrl,
                  @Column("image_url") String imageUrl,
-                 @Column("regular_price_cts") int regularPriceInCents,
                  @Column("currency") String currency,
                  @Column("available_seats") int availableSeats,
-                 @Column("vat_included") boolean vatIncluded,
                  @Column("vat") BigDecimal vat,
                  @Column("allowed_payment_proxies") String allowedPaymentProxies,
                  @Column("private_key") String privateKey,
                  @Column("org_id") int organizationId,
-                 @Column("locales") int locales) {
+                 @Column("locales") int locales,
+                 @Column("src_price_cts") int srcPriceInCents,
+                 @Column("vat_status") PriceContainer.VatStatus vatStatus,
+                 @Column("version") String version) {
 
         this.type = type;
         this.displayName = displayName;
@@ -116,10 +123,9 @@ public class Event {
         this.timeZone = zoneId;
         this.begin = begin.withZoneSameInstant(zoneId);
         this.end = end.withZoneSameInstant(zoneId);
-        this.regularPriceInCents = regularPriceInCents;
         this.currency = currency;
         this.availableSeats = availableSeats;
-        this.vatIncluded = vatIncluded;
+        this.vatIncluded = vatStatus == PriceContainer.VatStatus.INCLUDED;
         this.vat = vat;
         this.privateKey = privateKey;
         this.organizationId = organizationId;
@@ -128,10 +134,13 @@ public class Event {
                 .filter(StringUtils::isNotBlank)
                 .map(PaymentProxy::valueOf)
                 .collect(Collectors.toList());
+        this.vatStatus = vatStatus;
+        this.srcPriceCts = srcPriceInCents;
+        this.version = version;
     }
 
     public BigDecimal getRegularPrice() {
-        return MonetaryUtil.centsToUnit(regularPriceInCents);
+        return MonetaryUtil.centsToUnit(srcPriceCts);
     }
     
     
@@ -139,11 +148,13 @@ public class Event {
         return begin.truncatedTo(ChronoUnit.DAYS).equals(end.truncatedTo(ChronoUnit.DAYS));
     }
 
+    @Override
     @JsonIgnore
     public String getPrivateKey() {
         return privateKey;
     }
     
+    @Override
     @JsonIgnore
     public Pair<String, String> getLatLong() {
         return Pair.of(latitude, longitude);
@@ -153,7 +164,6 @@ public class Event {
      * Returns the begin date in the event's timezone
      * @return Date
      */
-    @JsonIgnore
     public ZonedDateTime getBegin() {
         return begin;
     }
@@ -174,13 +184,14 @@ public class Event {
         return timeZone.toString();
     }
 
+    @Override
     @JsonIgnore
     public ZoneId getZoneId() {
         return timeZone;
     }
 
     public boolean isFreeOfCharge() {
-        return regularPriceInCents == 0;
+        return srcPriceCts == 0;
     }
 
     public boolean getFree() {
@@ -211,11 +222,13 @@ public class Event {
         return ContentLanguage.findAllFor(getLocales());
     }
 
+    @Override
     @JsonIgnore
     public String getGoogleCalendarUrl() {
         return getGoogleCalendarUrl("");//used by the email
     }
 
+    @Override
     @JsonIgnore
     public String getGoogleCalendarUrl(String description) {
         //format described at http://stackoverflow.com/a/19867654
@@ -231,20 +244,21 @@ public class Event {
                 .toUriString();
     }
 
+    @Override
     @JsonIgnore
     public Optional<byte[]> getIcal(String description, String organizerName, String organizerEmail) {
         ICalendar ical = new ICalendar();
         VEvent vEvent = new VEvent();
         vEvent.setSummary(getDisplayName());
         vEvent.setDescription(description);
-        vEvent.setLocation(getLocation());
+        vEvent.setLocation(StringUtils.replacePattern(getLocation(), "[\n\r\t]+", " "));
         vEvent.setDateStart(Date.from(getBegin().toInstant()));
         vEvent.setDateEnd(Date.from(getEnd().toInstant()));
         vEvent.setUrl(getWebsiteUrl());
         vEvent.setOrganizer(new Organizer(organizerName, organizerEmail));
         ical.addEvent(vEvent);
         StringWriter strWriter = new StringWriter();
-        try (ICalWriter writer = new ICalWriter(strWriter, ICalVersion.V1_0)) {
+        try (ICalWriter writer = new ICalWriter(strWriter, ICalVersion.V2_0)) {
             writer.write(ical);
             return Optional.of(strWriter.toString().getBytes(StandardCharsets.UTF_8));
         } catch (IOException e) {
@@ -257,4 +271,19 @@ public class Event {
         return type == EventType.INTERNAL;
     }
 
+    public boolean getUseFirstAndLastName() {
+        return mustUseFirstAndLastName();
+    }
+
+    public boolean mustUseFirstAndLastName() {
+        return mustUseFirstAndLastName(this);
+    }
+
+
+    private static boolean mustUseFirstAndLastName(Event event) {
+        if(event.getVersion() == null) {
+            return false;
+        }
+        return MigrationVersion.fromVersion(event.getVersion()).compareTo(MigrationVersion.fromVersion(VERSION_FOR_FIRST_AND_LAST_NAME)) >= 0;
+    }
 }

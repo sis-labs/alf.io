@@ -87,12 +87,53 @@
 </div>
 
 <form action="{{request.contextPath}}/event/{{event.shortName}}/reservation/{{reservation.id}}" method="POST" id="payment-form">
+    {{#paypalCheckoutConfirmation}}
+        {{#useFirstAndLastName}}
+        <input type="hidden" name="firstName" value="{{firstName}}">
+        <input type="hidden" name="lastName" value="{{lastName}}">
+        {{/useFirstAndLastName}}
+        {{^useFirstAndLastName}}
+        <input type="hidden" name="fullName" value="{{fullName}}">
+        {{/useFirstAndLastName}}
+        <input type="hidden" name="email" value="{{email}}">
+        <input type="hidden" name="billingAddress" value="{{billingAddress}}">
+        <input type="hidden" name="hmac" value="{{hmac}}">
+        <input type="hidden" name="paymentMethod" value="PAYPAL">
+        <input type="hidden" name="paypalPaymentId" value="{{paypalPaymentId}}">
+        <input type="hidden" name="paypalPayerID" value="{{paypalPayerID}}">
+        <input type="hidden" name="expressCheckoutRequested" value="{{expressCheckoutRequested}}">
+        <input type="hidden" name="termAndConditionsAccepted" value="true">
+        {{#i18n}}reservation-page.paypal.confirm{{/i18n}}
+    {{/paypalCheckoutConfirmation}}
+    {{^paypalCheckoutConfirmation}}
+
+
     <h2>{{#i18n}}reservation-page.your-details{{/i18n}}</h2>
+    {{#useFirstAndLastName}}
+    <div class="row">
+        <div class="col-xs-12 col-sm-6">
+            <div class="form-group {{#field-has-error}}[firstName] has-error{{/field-has-error}}">
+                <label for="first-name" class="control-label">{{#i18n}}common.first-name{{/i18n}}</label>
+                <input type="text" name="firstName" id="first-name" required class="form-control" autocomplete="fname" maxlength="255" value="{{paymentForm.firstName}}">
+                {{#field-has-error}}[firstName]<span class="help-block text-danger">{{#i18n}}{{#field-error}}firstName{{/field-error}}{{/i18n}}</span>{{/field-has-error}}
+            </div>
+        </div>
+        <div class="col-xs-12 col-sm-6">
+            <div class="form-group {{#field-has-error}}[lastName] has-error{{/field-has-error}}">
+                <label for="last-name" class="control-label">{{#i18n}}common.last-name{{/i18n}}</label>
+                <input type="text" name="lastName" id="last-name" required class="form-control" autocomplete="lname" maxlength="255" value="{{paymentForm.lastName}}">
+                {{#field-has-error}}[lastName]<span class="help-block text-danger">{{#i18n}}{{#field-error}}lastName{{/field-error}}{{/i18n}}</span>{{/field-has-error}}
+            </div>
+        </div>
+    </div>
+    {{/useFirstAndLastName}}
+    {{^useFirstAndLastName}}
     <div class="form-group {{#field-has-error}}[fullName] has-error{{/field-has-error}}">
         <label for="full-name" class="control-label">{{#i18n}}common.full-name{{/i18n}}</label>
         <input type="text" name="fullName" id="full-name" required class="form-control" autocomplete="name" maxlength="255" value="{{paymentForm.fullName}}">
         {{#field-has-error}}[fullName]<span class="help-block text-danger">{{#i18n}}{{#field-error}}fullName{{/field-error}}{{/i18n}}</span>{{/field-has-error}}
     </div>
+    {{/useFirstAndLastName}}
     <div class="form-group {{#field-has-error}}[email] has-error{{/field-has-error}}">
         <label for="email" class="control-label">{{#i18n}}common.email{{/i18n}}</label>
         <input type="email" name="email" id="email" required class="form-control" autocomplete="email" maxlength="255" value="{{paymentForm.email}}">
@@ -106,26 +147,29 @@
         <textarea name="billingAddress" id="billing-address" class="form-control" maxlength="450">{{paymentForm.billingAddress}}</textarea>
         {{#field-has-error}}[billingAddress]<span class="help-block text-danger">{{#i18n}}{{#field-error}}billingAddress{{/field-error}}{{/i18n}}</span>{{/field-has-error}}
     </div>
+
+
+
     <h2>{{#i18n}}reservation-page.payment{{/i18n}}</h2>
 
         {{#event.multiplePaymentMethods}}
             <div class="btn-group j-btn-group" data-toggle="buttons">
-                {{#event.allowedPaymentProxies}}
+                {{#activePaymentMethods}}
                 <label class="btn btn-default tooltip-handler xs-payment-method" {{#is-payment-method}}[STRIPE,{{.}}]  title="Powered by Stripe"{{/is-payment-method}}>
                     <input type="radio" required name="paymentMethod" id="option-{{.}}" data-payment-method="{{.}}" autocomplete="off" value="{{.}}">
-                    {{#is-payment-method}}[STRIPE,{{.}}]
-                        <i class="fa fa-credit-card"></i> {{#i18n}}reservation-page.credit-card{{/i18n}}{{/is-payment-method}}
+                    {{#is-payment-method}}[STRIPE,{{.}}]<i class="fa fa-cc-stripe"></i> {{#i18n}}reservation-page.credit-card{{/i18n}}{{/is-payment-method}}
+                    {{#is-payment-method}}[PAYPAL,{{.}}]<i class="fa fa-paypal"></i> {{#i18n}}reservation-page.paypal{{/i18n}}{{/is-payment-method}}
                     {{#is-payment-method}}[ON_SITE,{{.}}]<i class="fa fa-money"></i> {{#i18n}}reservation-page.on-site{{/i18n}}{{/is-payment-method}}
                     {{#is-payment-method}}[OFFLINE,{{.}}]<i class="fa fa-exchange"></i> {{#i18n}}reservation-page.offline{{/i18n}}{{/is-payment-method}}
                 </label>
-                {{/event.allowedPaymentProxies}}
+                {{/activePaymentMethods}}
             </div>
         {{/event.multiplePaymentMethods}}
         {{^event.multiplePaymentMethods}}
             {{#event.firstPaymentMethod}}
                 <h4 class="wMarginTop">
-                {{#is-payment-method}}[STRIPE,{{.}}]
-                    <i class="fa fa-credit-card"></i> {{#i18n}}reservation-page.credit-card{{/i18n}}{{/is-payment-method}}
+                {{#is-payment-method}}[STRIPE,{{.}}]<i class="fa fa-credit-card"></i> {{#i18n}}reservation-page.credit-card{{/i18n}}{{/is-payment-method}}
+                {{#is-payment-method}}[PAYPAL,{{.}}]<i class="fa fa-paypal"></i> {{#i18n}}reservation-page.paypal{{/i18n}}{{/is-payment-method}}
                 {{#is-payment-method}}[ON_SITE,{{.}}]<i class="fa fa-money"></i> {{#i18n}}reservation-page.on-site{{/i18n}}{{/is-payment-method}}
                 {{#is-payment-method}}[OFFLINE,{{.}}]<i class="fa fa-exchange"></i> {{#i18n}}reservation-page.offline{{/i18n}}{{/is-payment-method}}
                 </h4>
@@ -135,6 +179,7 @@
         {{#event.allowedPaymentProxies}}
             <div class="payment-method-detail" id="payment-method-{{.}}">
                 {{#is-payment-method}}[STRIPE,{{.}}]{{> /event/payment/stripe }}{{/is-payment-method}}
+                {{#is-payment-method}}[PAYPAL,{{.}}]{{> /event/payment/paypal }}{{/is-payment-method}}
                 {{#is-payment-method}}[ON_SITE,{{.}}]{{> /event/payment/on-site }}{{/is-payment-method}}
                 {{#is-payment-method}}[OFFLINE,{{.}}]{{> /event/payment/offline }}{{/is-payment-method}}
             </div>
@@ -157,7 +202,12 @@
         </label>
     </div>
 
+
+    {{/paypalCheckoutConfirmation}}
+
     <hr />
+
+
 
     {{#orderSummary.free}}
         <div class="row">
@@ -167,10 +217,21 @@
     {{/orderSummary.free}}
     {{^orderSummary.free}}
         <div class="row">
-            <div class="col-md-4 col-md-push-8 col-xs-12 wMarginBottom"><button type="submit" class="btn btn-success btn-block" id="continue-button">{{#i18n}}reservation-page.pay{{/i18n}} {{orderSummary.totalPrice}} {{event.currency}}</button></div>
+            <div class="col-md-4 col-md-push-8 col-xs-12 wMarginBottom"><button type="submit" class="btn btn-success btn-block" id="continue-button">
+                {{#paypalCheckoutConfirmation}}
+                    {{#i18n}}reservation-page.paypal.confirm-button{{/i18n}}
+                {{/paypalCheckoutConfirmation}}
+                {{^paypalCheckoutConfirmation}}
+                    {{#i18n}}reservation-page.pay{{/i18n}} {{orderSummary.totalPrice}} {{event.currency}}
+                {{/paypalCheckoutConfirmation}}
+            </button></div>
             <div class="col-md-4 col-md-pull-4 col-xs-12"><button type="submit" class="btn btn-default btn-block" id="cancel-reservation">{{#i18n}}reservation-page.cancel{{/i18n}}</button></div>
         </div>
     {{/orderSummary.free}}
+
+
+
+
  
     <input type="hidden" name="{{_csrf.parameterName}}" value="{{_csrf.token}}">
     

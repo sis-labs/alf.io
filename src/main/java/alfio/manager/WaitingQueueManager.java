@@ -93,12 +93,13 @@ public class WaitingQueueManager {
         this.pluginManager = pluginManager;
     }
 
-    public boolean subscribe(Event event, String fullName, String email, Locale userLanguage) {
+    public boolean subscribe(Event event, CustomerName customerName, String email, Integer selectedCategoryId, Locale userLanguage) {
         try {
             WaitingQueueSubscription.Type subscriptionType = getSubscriptionType(event);
             validateSubscriptionType(event, subscriptionType);
-            AffectedRowCountAndKey<Integer> key = waitingQueueRepository.insert(event.getId(), fullName, email, ZonedDateTime.now(event.getZoneId()), userLanguage.getLanguage(), subscriptionType);
-            notifySubscription(event, fullName, email, userLanguage, subscriptionType);
+            validateSelectedCategoryId(event.getId(), selectedCategoryId);
+            AffectedRowCountAndKey<Integer> key = waitingQueueRepository.insert(event.getId(), customerName.getFullName(), customerName.getFirstName(), customerName.getLastName(), email, ZonedDateTime.now(event.getZoneId()), userLanguage.getLanguage(), subscriptionType, selectedCategoryId);
+            notifySubscription(event, customerName, email, userLanguage, subscriptionType);
             pluginManager.handleWaitingQueueSubscription(waitingQueueRepository.loadById(key.getKey()));
             return true;
         } catch(DuplicateKeyException e) {
@@ -109,11 +110,15 @@ public class WaitingQueueManager {
         }
     }
 
-    private void notifySubscription(Event event, String fullName, String email, Locale userLanguage, WaitingQueueSubscription.Type subscriptionType) {
+    private void validateSelectedCategoryId(int eventId, Integer selectedCategoryId) {
+        Optional.ofNullable(selectedCategoryId).ifPresent(id -> Validate.isTrue(ticketCategoryRepository.findUnboundedOrderByExpirationDesc(eventId).stream().anyMatch(c -> id.equals(c.getId()))));
+    }
+
+    private void notifySubscription(Event event, CustomerName name, String email, Locale userLanguage, WaitingQueueSubscription.Type subscriptionType) {
         Organization organization = organizationRepository.getById(event.getOrganizationId());
         Map<String, Object> model = new HashMap<>();
         model.put("eventName", event.getDisplayName());
-        model.put("fullName", fullName);
+        model.put("fullName", name.getFullName());
         model.put("organization", organization);
         notificationManager.sendSimpleEmail(event, email, messageSource.getMessage("email-waiting-queue.subscribed.subject", new Object[]{event.getDisplayName()}, userLanguage),
                 () -> templateManager.renderClassPathResource("/alfio/templates/waiting-queue-joined.ms", model, userLanguage, TemplateManager.TemplateOutput.TEXT));
@@ -227,7 +232,7 @@ public class WaitingQueueManager {
         int eventId = event.getId();
         log.debug("processing {} subscribers from waiting queue", availableSeats);
         Iterator<Ticket> tickets = ticketRepository.selectWaitingTicketsForUpdate(eventId, status.name(), availableSeats).iterator();
-        Optional<TicketCategory> unboundedCategory = ticketCategoryRepository.findUnboundedOrderByExpirationDesc(eventId).stream().findFirst();
+        List<TicketCategory> unboundedCategories = ticketCategoryRepository.findUnboundedOrderByExpirationDesc(eventId);
         int expirationTimeout = configurationManager.getIntConfigValue(Configuration.from(event.getOrganizationId(), event.getId(), WAITING_QUEUE_RESERVATION_TIMEOUT), 4);
         ZonedDateTime expiration = ZonedDateTime.now(event.getZoneId()).plusHours(expirationTimeout).with(WorkingDaysAdjusters.defaultWorkingDays());
 
@@ -240,11 +245,18 @@ public class WaitingQueueManager {
             .map(pair -> {
                 TicketReservationModification ticketReservation = new TicketReservationModification();
                 ticketReservation.setAmount(1);
-                Integer categoryId = Optional.ofNullable(pair.getValue().getCategoryId()).orElseGet(() -> unboundedCategory.orElseThrow(RuntimeException::new).getId());
+                Integer categoryId = Optional.ofNullable(pair.getValue().getCategoryId()).orElseGet(() -> findBestCategory(unboundedCategories, pair.getKey()).orElseThrow(RuntimeException::new).getId());
                 ticketReservation.setTicketCategoryId(categoryId);
                 return Pair.of(pair.getLeft(), new TicketReservationWithOptionalCodeModification(ticketReservation, Optional.<SpecialPrice>empty()));
             })
             .map(pair -> Triple.of(pair.getKey(), pair.getValue(), expiration));
+    }
+
+    private Optional<TicketCategory> findBestCategory(List<TicketCategory> unboundedCategories, WaitingQueueSubscription subscription) {
+        Integer selectedCategoryId = subscription.getSelectedCategoryId();
+        return unboundedCategories.stream()
+            .filter(tc -> selectedCategoryId == null || selectedCategoryId.equals(tc.getId()))
+            .findFirst();
     }
 
     public void fireReservationConfirmed(String reservationId) {

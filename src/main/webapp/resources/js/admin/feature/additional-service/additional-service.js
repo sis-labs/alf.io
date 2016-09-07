@@ -5,7 +5,6 @@
             return {
                 scope: {
                     selectedLanguages: '=',
-                    availableLanguages: '=',
                     onModification: '&',
                     eventId: '=',
                     eventStartDate: '=',
@@ -14,18 +13,19 @@
                 bindToController: true,
                 templateUrl: '/resources/angular-templates/admin/partials/event/fragment/additional-services.html',
                 controller: 'AdditionalServicesController',
-                controllerAs: 'asCtrl'
+                controllerAs: 'ctrl'
             };
         }])
         .directive('editAdditionalService', function() {
             return {
                 scope: {
                     item: '=editingItem',
-                    availableLanguages: '=',
-                    selectedLanguages: '=',
+                    titles: '=',
+                    descriptions: '=',
                     onEditComplete: '&',
                     onDismiss: '&',
-                    eventStartDate: '='
+                    eventStartDate: '=',
+                    selectedLanguages: '='
                 },
                 bindToController: true,
                 templateUrl: '/resources/angular-templates/admin/partials/event/fragment/edit-additional-service.html',
@@ -41,49 +41,127 @@
                 return moment().format('YYYY-MM-DD HH:mm');
             };
         }])
+        .filter('showMissingASText', function() {
+            return function(text) {
+                if(text.value && text.value !== '') {
+                    return text.value;
+                } else {
+                    return '!! missing '+text.locale + ' !!';
+                }
+            };
+        })
         .controller('AdditionalServicesController', AdditionalServicesController)
         .controller('EditAdditionalServiceController', EditAdditionalServiceController)
         .service('AdditionalServiceManager', AdditionalServiceManager);
 
-    function AdditionalServicesController(AdditionalServiceManager) {
+    function AdditionalServicesController(AdditionalServiceManager, EventService, $q, $uibModal) {
         var self = this;
 
         self.propagateChanges = angular.isDefined(self.eventId);
+
+        $q.all([EventService.getSupportedLanguages(), AdditionalServiceManager.loadAll(self.eventId)]).then(function(results) {
+            var languages = _.filter(results[0].data, function(l) {return (l.value & self.selectedLanguages) === l.value});
+            var titles = _.map(languages, function(l) {
+                return {
+                    localeValue: l.value,
+                    locale: l.locale,
+                    type: 'TITLE',
+                    value: '',
+                    displayLanguage: l.displayLanguage
+                }
+            });
+            var descriptions = _.map(languages, function(l) {
+                return {
+                    localeValue: l.value,
+                    locale: l.locale,
+                    type: 'DESCRIPTION',
+                    value: '',
+                    displayLanguage: l.displayLanguage
+                }
+            });
+
+            var result = results[1].data;
+            self.titles = titles;
+            self.descriptions = descriptions;
+            self.list = _.map(result, function(item) {
+                item.title = _.map(titles, fillExistingTexts(item.title));
+                item.description = _.map(descriptions, fillExistingTexts(item.description));
+                return item;
+            });
+            self.displayList = buildDisplayList(self.list);
+
+        });
+
+        function fillExistingTexts(texts) {
+            return function(t) {
+                var existing = _.find(texts, function(e) {return e.locale === t.locale});
+                return existing ? angular.extend({displayLanguage: t.displayLanguage}, existing) : t;
+            }
+        }
 
         self.zipTitleAndDescription = function(item) {
             return _.zip(item.title, item.description);
         };
 
-        AdditionalServiceManager.loadAll(self.eventId).then(function(success) {
-            var result = success.data;
-            self.list = result;
-            self.displayList = buildDisplayList(result);
-        });
         self.addedItem = undefined;
 
         self.edit = function(item) {
-            self.editingItem = item;
             self.editActive = true;
+            var parentCtrl = self;
+            var modal = $uibModal.open({
+                size:'lg',
+                template:'<edit-additional-service data-editing-item="ctrl.item" data-titles="ctrl.titles" data-descriptions="ctrl.descriptions" selected-languages="ctrl.selectedLanguages" data-on-edit-complete="ctrl.onEditComplete(item)" data-on-dismiss="ctrl.onDismiss()" data-event-start-date="ctrl.eventStartDate"></edit-additional-service>',
+                backdrop: 'static',
+                controller: function() {
+                    var ctrl = this;
+                    ctrl.item = angular.copy(item);
+                    ctrl.selectedLanguages = parentCtrl.selectedLanguages;
+                    ctrl.availableLanguages = parentCtrl.availableLanguages;
+                    ctrl.titles = parentCtrl.titles;
+                    ctrl.descriptions = parentCtrl.descriptions;
+                    ctrl.onEditComplete = function(item) {
+                        modal.close(item);
+                    };
+                    ctrl.onDismiss = function() {
+                        modal.dismiss();
+                    };
+                    ctrl.eventStartDate = parentCtrl.eventStartDate;
+                },
+                bindToController: true,
+                controllerAs: 'ctrl'
+            });
+            modal.result.then(function(editedItem) {
+                self.onEditComplete(editedItem, item);
+            }, function() {
+                self.onDismiss();
+            });
         };
 
-        self.onEditComplete = function(item) {
+        self.onEditComplete = function(item, originalItem) {
 
-            var afterUpdate = function(r) {
+            var afterUpdate = function(r, originalItem) {
                 if (!_.find(self.list, function (i) {
-                        return (self.propagateChanges && i.id == r.id) || i === r;
+                        return (self.propagateChanges && i.id == r.id) || i === originalItem;
                     })) {
                     r.ordinal = self.list.length;
                     self.list.push(r);
+                } else if(self.list.indexOf(originalItem) >= 0){
+                    self.list[self.list.indexOf(originalItem)] = r;
                 }
                 editComplete();
             };
 
             if(self.propagateChanges) {
                 AdditionalServiceManager.save(self.eventId, item).then(function(result) {
-                    afterUpdate(result.data);
+                    //HACK
+                    result.data.description = originalItem.description;
+                    result.data.title = originalItem.title;
+                    result.data.zippedTitleAndDescriptions = originalItem.zippedTitleAndDescriptions;
+                    //
+                    afterUpdate(result.data, originalItem);
                 });
             } else {
-                afterUpdate(item);
+                afterUpdate(item, originalItem);
             }
 
         };
@@ -124,7 +202,7 @@
         };
     }
 
-    AdditionalServicesController.$inject = ['AdditionalServiceManager'];
+    AdditionalServicesController.$inject = ['AdditionalServiceManager', 'EventService', '$q','$uibModal'];
 
     function EditAdditionalServiceController(ValidationService, AdditionalServiceManager, $q) {
         var ctrl = this;
@@ -149,24 +227,21 @@
         }
 
         if(!angular.isDefined(ctrl.item.title)) {
-            var languages = _.filter(ctrl.availableLanguages, function(l) {return (l.value & ctrl.selectedLanguages) === l.value});
-            ctrl.item.title = _.map(languages, function(l) {
-                return {
-                    locale: l.locale,
-                    type: 'TITLE',
-                    value: '',
-                    displayLanguage: l.displayLanguage
-                }
+            ctrl.item.title = ctrl.titles;
+            ctrl.item.description = ctrl.descriptions;
+        } else {
+            ctrl.item.title = _.map(ctrl.titles, function(t) {
+                var existing = _.find(ctrl.item.title, function(e) {return e.locale === t.locale});
+                return existing ? angular.extend({displayLanguage: t.displayLanguage}, existing) : t;
             });
-            ctrl.item.description = _.map(languages, function(l) {
-                return {
-                    locale: l.locale,
-                    type: 'DESCRIPTION',
-                    value: '',
-                    displayLanguage: l.displayLanguage
-                }
+            ctrl.item.description = _.map(ctrl.descriptions, function(d) {
+                var existing = _.find(ctrl.item.description, function(e) {return e.locale === d.locale});
+                return existing ? angular.extend({displayLanguage: d.displayLanguage}, existing) : d;
             });
         }
+
+        ctrl.item.title = _.filter(ctrl.item.title, function(l) {return (l.localeValue & ctrl.selectedLanguages) === l.localeValue});
+        ctrl.item.description = _.filter(ctrl.item.description, function(l) {return (l.localeValue & ctrl.selectedLanguages) === l.localeValue});
 
         ctrl.item.zippedTitleAndDescriptions = _.zip(ctrl.item.title, ctrl.item.description);
 

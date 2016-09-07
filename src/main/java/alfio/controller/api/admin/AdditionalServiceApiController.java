@@ -16,6 +16,9 @@
  */
 package alfio.controller.api.admin;
 
+import alfio.model.AdditionalService;
+import alfio.model.Event;
+import alfio.model.PriceContainer;
 import alfio.model.modification.EventModification;
 import alfio.repository.AdditionalServiceRepository;
 import alfio.repository.AdditionalServiceTextRepository;
@@ -33,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.security.Principal;
 import java.util.Collections;
 import java.util.List;
@@ -79,7 +83,8 @@ public class AdditionalServiceApiController {
                             .stream()
                             .map(as -> EventModification.AdditionalService.from(as)//.withAdditionalFields() TODO to be implemented
                                             .withText(additionalServiceTextRepository.findAllByAdditionalServiceId(as.getId()))
-                                            .withZoneId(event.getZoneId()).build())
+                                            .withZoneId(event.getZoneId())
+                                            .withPriceContainer(buildPriceContainer(event, as)).build())
                             .collect(Collectors.toList()))
             .orElse(Collections.emptyList());
     }
@@ -92,12 +97,18 @@ public class AdditionalServiceApiController {
         Validate.isTrue(additionalServiceId == additionalService.getId(), "wrong input");
         return optionally(() -> eventRepository.findById(eventId))
             .map(event -> {
-                int result = additionalServiceRepository.update(additionalServiceId, Optional.ofNullable(additionalService.getPrice()).map(MonetaryUtil::unitToCents).orElse(0), additionalService.isFixPrice(),
+                int result = additionalServiceRepository.update(additionalServiceId, additionalService.isFixPrice(),
                     additionalService.getOrdinal(), additionalService.getAvailableQuantity(), additionalService.getMaxQtyPerOrder(), additionalService.getInception().toZonedDateTime(event.getZoneId()),
-                    additionalService.getExpiration().toZonedDateTime(event.getZoneId()), additionalService.getVat(), additionalService.getVatType());
+                    additionalService.getExpiration().toZonedDateTime(event.getZoneId()), additionalService.getVat(), additionalService.getVatType(), Optional.ofNullable(additionalService.getPrice()).map(MonetaryUtil::unitToCents).orElse(0));
                 Validate.isTrue(result <= 1, "too many records updated");
                 Stream.concat(additionalService.getTitle().stream(), additionalService.getDescription().stream()).
-                    forEach(t -> additionalServiceTextRepository.update(t.getId(), t.getLocale(), t.getType(), t.getValue()));
+                    forEach(t -> {
+                        if(t.getId() != null) {
+                            additionalServiceTextRepository.update(t.getId(), t.getLocale(), t.getType(), t.getValue());
+                        } else {
+                            additionalServiceTextRepository.insert(additionalService.getId(), t.getLocale(), t.getType(), t.getValue());
+                        }
+                    });
                 return ResponseEntity.ok(additionalService);
             }).orElseThrow(IllegalArgumentException::new);
     }
@@ -145,5 +156,29 @@ public class AdditionalServiceApiController {
     @RequestMapping(value = "/additional-services/validate", method = RequestMethod.POST)
     public ValidationResult checkAdditionalService(@RequestBody EventModification.AdditionalService additionalService, BindingResult bindingResult) {
         return Validator.validateAdditionalService(additionalService, bindingResult);
+    }
+
+    private static PriceContainer buildPriceContainer(final Event event, final AdditionalService as) {
+        return new PriceContainer() {
+            @Override
+            public int getSrcPriceCts() {
+                return as.isFixPrice() ? as.getSrcPriceCts() : 0;
+            }
+
+            @Override
+            public String getCurrencyCode() {
+                return event.getCurrency();
+            }
+
+            @Override
+            public Optional<BigDecimal> getOptionalVatPercentage() {
+                return getVatStatus() == VatStatus.NONE ? Optional.empty() : Optional.of(event.getVat());
+            }
+
+            @Override
+            public VatStatus getVatStatus() {
+                return AdditionalService.getVatStatus(as.getVatType(), event.getVatStatus());
+            }
+        };
     }
 }

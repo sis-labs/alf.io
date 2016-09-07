@@ -17,6 +17,8 @@
 package alfio.manager;
 
 import alfio.manager.support.PaymentResult;
+import alfio.manager.system.ConfigurationManager;
+import alfio.model.CustomerName;
 import alfio.model.Event;
 import alfio.repository.TransactionRepository;
 import com.insightfullogic.lambdabehave.JunitSuiteRunner;
@@ -37,10 +39,12 @@ public class PaymentManagerTest {{
     StripeManager successStripe = mock(StripeManager.class);
     StripeManager failureStripe = mock(StripeManager.class);
     TransactionRepository transactionRepository = mock(TransactionRepository.class);
+    ConfigurationManager configurationManager = mock(ConfigurationManager.class);
     TransactionRepository failureTR = mock(TransactionRepository.class);
     final String paymentId = "customer#1";
     final String error = "errorCode";
     Event event = mock(Event.class);
+    CustomerName customerName = mock(CustomerName.class);
     try {
         when(successStripe.chargeCreditCard(anyString(), anyLong(), any(Event.class), anyString(), anyString(), anyString(), anyString())).thenReturn(new Charge() {{
             setId(paymentId);
@@ -55,14 +59,14 @@ public class PaymentManagerTest {{
 
     describe("success flow", it -> {
         it.should("return a successful payment result", expect -> {
-            expect.that(new PaymentManager(successStripe, transactionRepository).processPayment("", "", 100, event, "", "", ""))
+            expect.that(new PaymentManager(successStripe, null, transactionRepository, configurationManager).processPayment("", "", 100, event, "", customerName, ""))
                     .is(PaymentResult.successful(paymentId));
         });
     });
 
     describe("stripe error", it -> {
         it.should("return an unsuccessful payment result", expect -> {
-            expect.that(new PaymentManager(failureStripe, transactionRepository).processPayment("", "", 100, event, "", "", ""))
+            expect.that(new PaymentManager(failureStripe, null, transactionRepository, configurationManager).processPayment("", "", 100, event, "", customerName, ""))
                     .is(PaymentResult.unsuccessful(error));
         });
     });
@@ -70,7 +74,7 @@ public class PaymentManagerTest {{
     describe("internal error", it -> {
         it.should("throw IllegalStateException in case of internal error", expect -> {
             expect.exception(IllegalStateException.class, () -> {
-                new PaymentManager(successStripe, failureTR).processPayment("", "", 100, event, "", "", "");
+                new PaymentManager(successStripe, null, failureTR, configurationManager).processPayment("", "", 100, event, "", customerName, "");
             });
         });
     });

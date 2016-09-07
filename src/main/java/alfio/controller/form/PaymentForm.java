@@ -16,7 +16,10 @@
  */
 package alfio.controller.form;
 
+import alfio.manager.PaypalManager;
 import alfio.manager.TicketReservationManager;
+import alfio.model.CustomerName;
+import alfio.model.Event;
 import alfio.model.transaction.PaymentProxy;
 import alfio.util.ErrorsCode;
 import lombok.Data;
@@ -33,9 +36,14 @@ import java.util.Optional;
 @Data
 public class PaymentForm {
     private String stripeToken;
+    private String paypalPaymentId;
+    private String paypalPayerID;
     private String email;
     private String fullName;
+    private String firstName;
+    private String lastName;
     private String billingAddress;
+    private String hmac;
     private Boolean cancelReservation;
     private Boolean termAndConditionsAccepted;
     private PaymentProxy paymentMethod;
@@ -48,7 +56,23 @@ public class PaymentForm {
         }
     }
 
-    public void validate(BindingResult bindingResult, TicketReservationManager.TotalPrice reservationCost, List<PaymentProxy> allowedPaymentMethods) {
+    public String getToken() {
+        if(paymentMethod == PaymentProxy.STRIPE) {
+            return stripeToken;
+        } else if(paymentMethod == PaymentProxy.PAYPAL) {
+            return paypalPaymentId;
+        } else {
+            return null;
+        }
+    }
+
+    public boolean hasPaypalTokens() {
+        return StringUtils.isNotBlank(paypalPayerID) && StringUtils.isNotBlank(paypalPaymentId);
+    }
+
+    public void validate(BindingResult bindingResult, TicketReservationManager.TotalPrice reservationCost, Event event) {
+
+        List<PaymentProxy> allowedPaymentMethods = event.getAllowedPaymentProxies();
 
         Optional<PaymentProxy> paymentProxyOptional = Optional.ofNullable(paymentMethod);
         PaymentProxy paymentProxy = paymentProxyOptional.filter(allowedPaymentMethods::contains).orElse(PaymentProxy.STRIPE);
@@ -65,20 +89,36 @@ public class PaymentForm {
         }
         
         email = StringUtils.trim(email);
+
         fullName = StringUtils.trim(fullName);
+        firstName = StringUtils.trim(firstName);
+        lastName = StringUtils.trim(lastName);
+
         billingAddress = StringUtils.trim(billingAddress);
 
         ValidationUtils.rejectIfEmptyOrWhitespace(bindingResult, "email", ErrorsCode.STEP_2_EMPTY_EMAIL);
         rejectIfOverLength(bindingResult, "email", ErrorsCode.STEP_2_MAX_LENGTH_EMAIL, email, 255);
 
-        ValidationUtils.rejectIfEmptyOrWhitespace(bindingResult, "fullName", ErrorsCode.STEP_2_EMPTY_FULLNAME);
-        rejectIfOverLength(bindingResult, "fullName", ErrorsCode.STEP_2_MAX_LENGTH_FULLNAME, fullName, 255);
+        if(event.mustUseFirstAndLastName()) {
+            ValidationUtils.rejectIfEmptyOrWhitespace(bindingResult, "firstName", ErrorsCode.STEP_2_EMPTY_FIRSTNAME);
+            rejectIfOverLength(bindingResult, "firstName", ErrorsCode.STEP_2_MAX_LENGTH_FIRSTNAME, fullName, 255);
+            ValidationUtils.rejectIfEmptyOrWhitespace(bindingResult, "lastName", ErrorsCode.STEP_2_EMPTY_LASTNAME);
+            rejectIfOverLength(bindingResult, "lastName", ErrorsCode.STEP_2_MAX_LENGTH_LASTNAME, fullName, 255);
+        } else {
+            ValidationUtils.rejectIfEmptyOrWhitespace(bindingResult, "fullName", ErrorsCode.STEP_2_EMPTY_FULLNAME);
+            rejectIfOverLength(bindingResult, "fullName", ErrorsCode.STEP_2_MAX_LENGTH_FULLNAME, fullName, 255);
+        }
+
 
         rejectIfOverLength(bindingResult, "billingAddress", ErrorsCode.STEP_2_MAX_LENGTH_BILLING_ADDRESS,
                 billingAddress, 450);
 
         if (email != null && !email.contains("@") && !bindingResult.hasFieldErrors("email")) {
             bindingResult.rejectValue("email", ErrorsCode.STEP_2_INVALID_EMAIL);
+        }
+
+        if (hasPaypalTokens() && !PaypalManager.isValidHMAC(new CustomerName(fullName, firstName, lastName, event), email, billingAddress, hmac, event)) {
+            bindingResult.reject(ErrorsCode.STEP_2_INVALID_HMAC);
         }
     }
 

@@ -36,9 +36,12 @@ public class AdditionalService {
         CUSTOM_EXCLUDED
     }
 
+    public enum AdditionalServiceType {
+        DONATION
+    }
+
     private final int id;
     private final int eventId;
-    private final Integer priceInCents;
     private final boolean fixPrice;
     private final int ordinal;
     private final int availableQuantity;
@@ -47,10 +50,12 @@ public class AdditionalService {
     private final ZonedDateTime utcExpiration;
     private final BigDecimal vat;
     private final VatType vatType;
+    private final AdditionalServiceType type = AdditionalServiceType.DONATION;
+
+    private final Integer srcPriceCts;
 
     public AdditionalService(@Column("id") int id,
                              @Column("event_id_fk") int eventId,
-                             @Column("price_cts") Integer priceInCents,
                              @Column("fix_price") boolean fixPrice,
                              @Column("ordinal") int ordinal,
                              @Column("available_qty") int availableQuantity,
@@ -58,10 +63,10 @@ public class AdditionalService {
                              @Column("inception_ts") ZonedDateTime utcInception,
                              @Column("expiration_ts") ZonedDateTime utcExpiration,
                              @Column("vat") BigDecimal vat,
-                             @Column("vat_type") VatType vatType) {
+                             @Column("vat_type") VatType vatType,
+                             @Column("src_price_cts") Integer srcPriceCts) {
         this.id = id;
         this.eventId = eventId;
-        this.priceInCents = priceInCents;
         this.fixPrice = fixPrice;
         this.ordinal = ordinal;
         this.availableQuantity = availableQuantity;
@@ -70,6 +75,7 @@ public class AdditionalService {
         this.utcExpiration = utcExpiration;
         this.vat = vat;
         this.vatType = vatType;
+        this.srcPriceCts = srcPriceCts;
     }
 
     public ZonedDateTime getInception(ZoneId zoneId) {
@@ -78,5 +84,20 @@ public class AdditionalService {
 
     public ZonedDateTime getExpiration(ZoneId zoneId) {
         return Optional.ofNullable(utcExpiration).map(i -> i.withZoneSameInstant(zoneId)).orElseGet(() -> ZonedDateTime.now(zoneId).plus(1L, ChronoUnit.HOURS));
+    }
+
+    public static PriceContainer.VatStatus getVatStatus(VatType vatType, PriceContainer.VatStatus eventVatStatus) {
+        switch (vatType) {
+            case INHERITED:
+                return eventVatStatus;
+            case NONE:
+                return PriceContainer.VatStatus.NONE;
+            case CUSTOM_EXCLUDED:
+                return PriceContainer.VatStatus.NOT_INCLUDED;
+            case CUSTOM_INCLUDED:
+                return PriceContainer.VatStatus.INCLUDED;
+            default:
+                return PriceContainer.VatStatus.NOT_INCLUDED;
+        }
     }
 }

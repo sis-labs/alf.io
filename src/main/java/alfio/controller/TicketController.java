@@ -38,7 +38,7 @@ import alfio.util.ImageUtil;
 import alfio.util.LocaleUtil;
 import alfio.util.TemplateManager;
 import com.google.zxing.WriterException;
-import com.lowagie.text.DocumentException;
+import com.openhtmltopdf.pdfboxout.PdfBoxRenderer;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.commons.lang3.tuple.Triple;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -125,13 +125,14 @@ public class TicketController {
 
         boolean enableFreeCancellation = configurationManager.getBooleanConfigValue(Configuration.from(event.getOrganizationId(), event.getId(), ticketCategory.getId(), ALLOW_FREE_TICKETS_CANCELLATION), false);
         Ticket ticket = data.getRight();
-        model.addAttribute("ticketAndCategory", Pair.of(eventManager.getTicketCategoryById(ticket.getCategoryId(), event.getId()), new TicketDecorator(ticket, enableFreeCancellation, eventManager.checkTicketCancellationPrerequisites().apply(ticket), "ticket/"+ticket.getUuid()+"/view", ticketHelper.findTicketFieldConfigurationAndValue(event.getId(), ticket.getId(), locale))))//
+        model.addAttribute("ticketAndCategory", Pair.of(eventManager.getTicketCategoryById(ticket.getCategoryId(), event.getId()), new TicketDecorator(ticket, enableFreeCancellation, eventManager.checkTicketCancellationPrerequisites().apply(ticket), "ticket/"+ticket.getUuid()+"/view", ticketHelper.findTicketFieldConfigurationAndValue(event.getId(), ticket.getId(), locale), true)))//
                 .addAttribute("reservation", data.getMiddle())//
                 .addAttribute("event", event)//
                 .addAttribute("ticketCategory", ticketCategory)//
                 .addAttribute("countries", ticketHelper.getLocalizedCountries(locale))
                 .addAttribute("organization", organization)//
-                .addAttribute("pageTitle", "show-ticket.header.title");
+                .addAttribute("pageTitle", "show-ticket.header.title")
+                .addAttribute("useFirstAndLastName", event.mustUseFirstAndLastName());
 
         return "/event/update-ticket";
     }
@@ -164,7 +165,7 @@ public class TicketController {
     @RequestMapping(value = "/event/{eventName}/reservation/{reservationId}/{ticketIdentifier}/download-ticket", method = RequestMethod.GET)
     public void generateTicketPdf(@PathVariable("eventName") String eventName,
             @PathVariable("reservationId") String reservationId,
-            @PathVariable("ticketIdentifier") String ticketIdentifier, HttpServletRequest request, HttpServletResponse response) throws IOException, DocumentException, WriterException {
+            @PathVariable("ticketIdentifier") String ticketIdentifier, HttpServletRequest request, HttpServletResponse response) throws IOException, WriterException {
 
         Optional<Triple<Event, TicketReservation, Ticket>> oData = ticketReservationManager.fetchCompleteAndAssigned(eventName, reservationId, ticketIdentifier);
         if(!oData.isPresent()) {
@@ -178,7 +179,10 @@ public class TicketController {
         response.setContentType("application/pdf");
         response.addHeader("Content-Disposition", "attachment; filename=ticket-" + ticketIdentifier + ".pdf");
         try (OutputStream os = response.getOutputStream()) {
-            preparePdfTicket(request, data.getLeft(), data.getMiddle(), ticket).generate(ticket).createPDF(os);
+            PdfBoxRenderer renderer = preparePdfTicket(request, data.getLeft(), data.getMiddle(), ticket).generate(ticket);
+            if(renderer != null) {
+                renderer.createPDF(os);
+            }
         }
     }
     
@@ -230,18 +234,20 @@ public class TicketController {
 
         TicketCategory ticketCategory = ticketCategoryRepository.getById(data.getRight().getCategoryId(), data.getLeft().getId());
         Organization organization = organizationRepository.getById(data.getLeft().getOrganizationId());
+        Event event = data.getLeft();
 
         TicketReservation reservation = data.getMiddle();
         model.addAttribute("ticket", data.getRight())//
             .addAttribute("reservation", reservation)//
-            .addAttribute("event", data.getLeft())//
+            .addAttribute("event", event)//
             .addAttribute("ticketCategory", ticketCategory)//
             .addAttribute("organization", organization)//
             .addAttribute("ticketEmailSent", ticketEmailSent)
             .addAttribute("deskPaymentRequired", Optional.ofNullable(reservation.getPaymentMethod()).orElse(PaymentProxy.STRIPE).isDeskPaymentRequired())
             .addAttribute("backSuffix", backSuffix)
             .addAttribute("userLanguage", locale.getLanguage())
-            .addAttribute("pageTitle", "show-ticket.header.title");
+            .addAttribute("pageTitle", "show-ticket.header.title")
+            .addAttribute("useFirstAndLastName", event.mustUseFirstAndLastName());
 
         return "/event/show-ticket";
     }
