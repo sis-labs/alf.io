@@ -399,7 +399,7 @@
                     if(window.sessionStorage) {
                         delete window.sessionStorage.new_event;
                     }
-                    $state.go('index');
+                    $state.go('events.single.detail', {eventName: event.shortName});
                 });
             }, angular.noop);
         };
@@ -529,7 +529,7 @@
         };
 
         $scope.getActualCapacity = function(category, event) {
-            return category.bounded ? category.maxTickets : event.dynamicAllocation;
+            return category.bounded ? category.maxTickets : (event.dynamicAllocation + category.checkedInTickets + category.soldTickets);
         };
 
         $scope.isTokenViewCollapsed = function(category) {
@@ -1013,6 +1013,12 @@
                 }});
         };
 
+        $scope.activateEvent = function(id) {
+            EventService.activateEvent(id).then(function() {
+                loadData();
+            });
+        };
+
         var unbind = $rootScope.$on('SidebarCategoryFilterUpdated', function(e, categoryFilter) {
             if(categoryFilter) {
                 $scope.selection.freeText = categoryFilter.freeText;
@@ -1305,8 +1311,8 @@
             $scope.event = result.data.event;
         });
 
-        var getPendingPayments = function() {
-            EventService.getPendingPayments($stateParams.eventName).success(function(data) {
+        var getPendingPayments = function(force) {
+            EventService.getPendingPayments($stateParams.eventName, force).success(function(data) {
                 $scope.pendingReservations = data;
                 $scope.loading = false;
             });
@@ -1324,7 +1330,7 @@
         $scope.registerPayment = function(eventName, id) {
             $scope.loading = true;
             EventService.registerPayment(eventName, id).success(function() {
-                getPendingPayments();
+                getPendingPayments(true);
             }).error(function() {
                 $scope.loading = false;
             });
@@ -1335,7 +1341,7 @@
             }
             $scope.loading = true;
             EventService.cancelPayment(eventName, id).success(function() {
-                getPendingPayments();
+                getPendingPayments(true);
             }).error(function() {
                 $scope.loading = false;
             });
@@ -1354,7 +1360,8 @@
                         subjectExample: 'An important message from {{eventName}}',
                         locale: r.language,
                         text: '',
-                        subject: ''
+                        subject: '',
+                        attachTicket: false
                     };
                 });
                 $scope.fullName = 'John Doe';
@@ -1407,10 +1414,13 @@
                             if(affectedUsers === 0 && !confirm('No one will receive this message. Do you really want to continue?')) {
                                 return;
                             }
+                            $scope.pending = true;
                             EventService.sendMessages(eventName, categoryId, messages).success(function(result) {
+                                $scope.pending = false;
                                 alert(result + ' messages have been enqueued');
                                 $scope.$close(true);
                             }).error(function(error) {
+                                $scope.pending = false;
                                 alert(error);
                             });
                         };
@@ -1434,7 +1444,7 @@
 
     admin.run(function($rootScope, PriceCalculator) {
         $rootScope.evaluateBarType = function(index) {
-            var barClasses = ['danger', 'warning', 'info', 'success'];
+            var barClasses = ['warning', 'info', 'success'];
             if(index < barClasses.length) {
                 return barClasses[index];
             }

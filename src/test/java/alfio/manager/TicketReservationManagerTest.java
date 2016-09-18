@@ -208,7 +208,7 @@ public class TicketReservationManagerTest {
         when(original.getTicketsReservationId()).thenReturn(ticketReservationId);
         when(ticketReservationRepository.findReservationById(eq(ticketReservationId))).thenReturn(reservation);
         UserDetails userDetails = new User("user", "password", singletonList(new SimpleGrantedAuthority(Role.ADMIN.getRoleName())));
-        trm.updateTicketOwner(original, Locale.ENGLISH, event, form, (a) -> null,(b) -> null, (c) -> null, Optional.of(userDetails));
+        trm.updateTicketOwner(original, Locale.ENGLISH, event, form, (a) -> null,(b) -> null, Optional.of(userDetails));
         verify(messageSource, never()).getMessage(eq("ticket-has-changed-owner-subject"), eq(new Object[] {"short-name"}), eq(Locale.ITALIAN));
     }
 
@@ -226,7 +226,7 @@ public class TicketReservationManagerTest {
         PartialTicketTextGenerator ownerChangeTextBuilder = mock(PartialTicketTextGenerator.class);
         when(ownerChangeTextBuilder.generate(eq(modified))).thenReturn("Hello, world");
         when(original.getUserLanguage()).thenReturn(USER_LANGUAGE);
-        trm.updateTicketOwner(original, Locale.ENGLISH, event, form, (a) -> null, ownerChangeTextBuilder, (c) -> null, Optional.empty());
+        trm.updateTicketOwner(original, Locale.ENGLISH, event, form, (a) -> null, ownerChangeTextBuilder, Optional.empty());
         verify(messageSource, times(1)).getMessage(eq("ticket-has-changed-owner-subject"), any(), eq(Locale.ITALIAN));
         verify(notificationManager, times(1)).sendSimpleEmail(eq(event), eq(originalEmail), anyString(), any(TextTemplateGenerator.class));
     }
@@ -246,7 +246,7 @@ public class TicketReservationManagerTest {
         PartialTicketTextGenerator ownerChangeTextBuilder = mock(PartialTicketTextGenerator.class);
         when(ownerChangeTextBuilder.generate(eq(modified))).thenReturn("Hello, world");
         when(original.getUserLanguage()).thenReturn(USER_LANGUAGE);
-        trm.updateTicketOwner(original, Locale.ENGLISH, event, form, (a) -> null, ownerChangeTextBuilder, (c) -> null, Optional.empty());
+        trm.updateTicketOwner(original, Locale.ENGLISH, event, form, (a) -> null, ownerChangeTextBuilder, Optional.empty());
         verifyZeroInteractions(messageSource);
     }
 
@@ -265,9 +265,9 @@ public class TicketReservationManagerTest {
         PartialTicketTextGenerator ownerChangeTextBuilder = mock(PartialTicketTextGenerator.class);
         when(ownerChangeTextBuilder.generate(eq(modified))).thenReturn("Hello, world");
         when(original.getUserLanguage()).thenReturn(USER_LANGUAGE);
-        trm.updateTicketOwner(original, Locale.ENGLISH, event, form, (a) -> null, ownerChangeTextBuilder, (c) -> null, Optional.empty());
+        trm.updateTicketOwner(original, Locale.ENGLISH, event, form, (a) -> null, ownerChangeTextBuilder, Optional.empty());
         verify(messageSource, times(1)).getMessage(eq("ticket-has-changed-owner-subject"), any(), eq(Locale.ITALIAN));
-        verify(notificationManager, times(1)).sendTicketByEmail(eq(modified), eq(event), eq(Locale.ENGLISH), any(), any());
+        verify(notificationManager, times(1)).sendTicketByEmail(eq(modified), eq(event), eq(Locale.ENGLISH), any(), any(), any());
         verify(notificationManager, times(1)).sendSimpleEmail(eq(event), eq(originalEmail), anyString(), any(TextTemplateGenerator.class));
     }
 
@@ -522,7 +522,6 @@ public class TicketReservationManagerTest {
     @Test
     public void doNothingIfNoReservations() throws Exception {
         Date now = new Date();
-        List<String> reservationIds = singletonList("reservation-id");
         when(ticketReservationRepository.findExpiredReservation(eq(now))).thenReturn(Collections.emptyList());
         trm.cleanupExpiredReservations(now);
         verify(ticketReservationRepository).findExpiredReservation(eq(now));
@@ -562,6 +561,7 @@ public class TicketReservationManagerTest {
         when(ticket.getEmail()).thenReturn(RESERVATION_EMAIL);
         when(ticket.getUserLanguage()).thenReturn(USER_LANGUAGE);
         when(ticket.getEventId()).thenReturn(EVENT_ID);
+        when(ticket.getStatus()).thenReturn(Ticket.TicketStatus.ACQUIRED);
         when(event.getId()).thenReturn(EVENT_ID);
         when(event.getOrganizationId()).thenReturn(ORGANIZATION_ID);
         when(ticket.getCategoryId()).thenReturn(TICKET_CATEGORY_ID);
@@ -841,5 +841,4 @@ public class TicketReservationManagerTest {
         trm.sendReminderForOptionalData();
         verify(notificationManager, never()).sendSimpleEmail(eq(event), anyString(), anyString(), any(TextTemplateGenerator.class));
     }
-
 }
