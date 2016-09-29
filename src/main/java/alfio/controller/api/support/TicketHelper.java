@@ -24,6 +24,7 @@ import alfio.manager.support.PartialTicketPDFGenerator;
 import alfio.manager.support.PartialTicketTextGenerator;
 import alfio.model.*;
 import alfio.model.user.Organization;
+import alfio.repository.AdditionalServiceItemRepository;
 import alfio.repository.TicketCategoryRepository;
 import alfio.repository.TicketFieldRepository;
 import alfio.repository.TicketRepository;
@@ -49,6 +50,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static alfio.model.TicketFieldConfiguration.Context.ATTENDEE;
+
 @Component
 public class TicketHelper {
 
@@ -59,6 +62,7 @@ public class TicketHelper {
     private final TemplateManager templateManager;
     private final FileUploadManager fileUploadManager;
     private final TicketFieldRepository ticketFieldRepository;
+    private final AdditionalServiceItemRepository additionalServiceItemRepository;
 
     @Autowired
     public TicketHelper(TicketReservationManager ticketReservationManager,
@@ -67,7 +71,8 @@ public class TicketHelper {
                         TicketRepository ticketRepository,
                         TemplateManager templateManager,
                         FileUploadManager fileUploadManager,
-                        TicketFieldRepository ticketFieldRepository) {
+                        TicketFieldRepository ticketFieldRepository,
+                        AdditionalServiceItemRepository additionalServiceItemRepository) {
         this.ticketReservationManager = ticketReservationManager;
         this.organizationRepository = organizationRepository;
         this.ticketCategoryRepository = ticketCategoryRepository;
@@ -75,15 +80,22 @@ public class TicketHelper {
         this.templateManager = templateManager;
         this.fileUploadManager = fileUploadManager;
         this.ticketFieldRepository = ticketFieldRepository;
+        this.additionalServiceItemRepository = additionalServiceItemRepository;
     }
 
-    public List<Pair<TicketFieldConfigurationAndDescription, String>> findTicketFieldConfigurationAndValue(int eventId, int ticketId, Locale locale) {
+    public List<TicketFieldConfigurationDescriptionAndValue> findTicketFieldConfigurationAndValue(int eventId, Ticket ticket, Locale locale) {
         Map<Integer, TicketFieldDescription> descriptions = ticketFieldRepository.findTranslationsFor(locale, eventId);
-        Map<String, TicketFieldValue> values = ticketFieldRepository.findAllByTicketIdGroupedByName(ticketId);
+        Map<String, TicketFieldValue> values = ticketFieldRepository.findAllByTicketIdGroupedByName(ticket.getId());
         Function<TicketFieldConfiguration, String> extractor = (f) -> Optional.ofNullable(values.get(f.getName())).map(TicketFieldValue::getValue).orElse("");
+        List<AdditionalServiceItem> additionalServiceItems = additionalServiceItemRepository.findByReservationUuid(ticket.getTicketsReservationId());
+        Set<Integer> additionalServiceIds = additionalServiceItems.stream().map(AdditionalServiceItem::getAdditionalServiceId).collect(Collectors.toSet());
         return ticketFieldRepository.findAdditionalFieldsForEvent(eventId)
             .stream()
-            .map(f-> Pair.of(new TicketFieldConfigurationAndDescription(f, descriptions.getOrDefault(f.getId(), TicketFieldDescription.MISSING_FIELD)), extractor.apply(f)))
+            .filter(f -> f.getContext() == ATTENDEE || Optional.ofNullable(f.getAdditionalServiceId()).filter(additionalServiceIds::contains).isPresent())
+            .map(f-> {
+                int count = Math.max(1, Optional.ofNullable(f.getAdditionalServiceId()).map(id -> (int) additionalServiceItems.stream().filter(i -> i.getAdditionalServiceId() == id).count()).orElse(1));
+                return new TicketFieldConfigurationDescriptionAndValue(f, descriptions.getOrDefault(f.getId(), TicketFieldDescription.MISSING_FIELD), count, extractor.apply(f));
+            })
             .collect(Collectors.toList());
     }
 

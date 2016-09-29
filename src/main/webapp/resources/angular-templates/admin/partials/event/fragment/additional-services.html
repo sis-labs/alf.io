@@ -3,6 +3,7 @@
     <span class="text-muted">here you can add one or more "donation" option.</span>
 </div>
 <div class="panel panel-default" data-ng-repeat="item in ctrl.displayList">
+    <div data-ng-if="item.id" id="additional-service-{{item.id}}"></div>
     <div class="panel-heading">
         <div class="panel-title">
             <div class="row">
@@ -36,9 +37,9 @@
                         <span data-ng-if="item.fixPrice">{{item.price  | currency : (item.currency || "")}}</span>
                     </div>
                 </div>
-                <div class="row" data-ng-if="!event.freeOfCharge && item.fixPrice">
-                    <div class="col-sm-4"><strong>Final price</strong></div>
-                    <div class="col-sm-8">{{item.finalPrice | currency : (item.currency || "")}}</div>
+                <div class="row" data-ng-if="item.fixPrice">
+                    <div class="col-sm-4"><strong>Max Qty per order</strong></div>
+                    <div class="col-sm-8">{{item.maxQtyPerOrder}}</div>
                 </div>
             </div>
             <div class="hidden-xs col-md-7">
